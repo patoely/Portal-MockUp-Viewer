@@ -268,7 +268,10 @@
         <h2>Navigation &amp; Modes</h2>
         <ul>
           <li>Mouse: Left‑drag orbit, right‑drag pan, scroll to zoom.</li>
-          <li>Videos are controlled via URL parameters (inner, outer, floor).</li>
+          <li>
+            Default view uses specs textures (Portal_Inside_Specs,
+            Portal_Outside_Specs, Portal_Floor_Specs).
+          </li>
         </ul>
       </div>
 
@@ -479,6 +482,58 @@
         goToSweetspotFront();
       }
 
+      function applySpecsTextures() {
+        if (!model) return;
+
+        const texLoader = new THREE.TextureLoader(loadingManager);
+
+        const insideSpecsTex = texLoader.load("Portal_Inside_Specs.png");
+        insideSpecsTex.colorSpace = THREE.SRGBColorSpace;
+        insideSpecsTex.flipY = false;
+
+        const outsideSpecsTex = texLoader.load("Portal_Outside_Specs.png");
+        outsideSpecsTex.colorSpace = THREE.SRGBColorSpace;
+        outsideSpecsTex.flipY = false;
+
+        const floorSpecsTex = texLoader.load("Portal_Floor_Specs.png");
+        floorSpecsTex.colorSpace = THREE.SRGBColorSpace;
+        floorSpecsTex.flipY = false;
+
+        model.traverse((child) => {
+          if (!child.isMesh || !child.material) return;
+          const mats = Array.isArray(child.material)
+            ? child.material
+            : [child.material];
+
+          for (const mat of mats) {
+            const name = (mat.name || "").toLowerCase();
+
+            if (name.startsWith("portal_inside_specs")) {
+              mat.map = insideSpecsTex;
+              mat.emissiveMap = null;
+              mat.emissive = new THREE.Color(0x000000);
+              mat.emissiveIntensity = 0.0;
+              mat.needsUpdate = true;
+              originalMaps.set(mat, insideSpecsTex);
+            } else if (name.startsWith("portal_outside_specs")) {
+              mat.map = outsideSpecsTex;
+              mat.emissiveMap = null;
+              mat.emissive = new THREE.Color(0x000000);
+              mat.emissiveIntensity = 0.0;
+              mat.needsUpdate = true;
+              originalMaps.set(mat, outsideSpecsTex);
+            } else if (name.startsWith("portal_floor_specs")) {
+              mat.map = floorSpecsTex;
+              mat.emissiveMap = null;
+              mat.emissive = new THREE.Color(0x000000);
+              mat.emissiveIntensity = 0.0;
+              mat.needsUpdate = true;
+              originalMaps.set(mat, floorSpecsTex);
+            }
+          }
+        });
+      }
+
       sweetspotFrontBtn.addEventListener("click", () => {
         goToSweetspotFront();
       });
@@ -502,6 +557,7 @@
           setupModel(model);
           window.model = model;
 
+          applySpecsTextures();
           loadingOverlay.classList.add("hidden");
         },
         undefined,

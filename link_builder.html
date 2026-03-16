@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Portal Preview Link Builder</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #05060a;
+        --panel: #0f1118;
+        --border: #272a3a;
+        --accent: #4cc3ff;
+        --text: #f5f5f5;
+        --muted: #a0a3b8;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        background:
+          radial-gradient(circle at 10% -10%, #4b5264 0, transparent 40%),
+          radial-gradient(circle at 80% 0%, #3b4253 0, transparent 40%),
+          radial-gradient(circle at 50% 120%, #05060a 0, #05060a 55%, #010103 100%);
+        color: var(--text);
+      }
+
+      .card {
+        width: min(640px, 100% - 32px);
+        padding: 20px 22px;
+        border-radius: 14px;
+        background: radial-gradient(circle at top left, #1b2133, #0b0d13);
+        border: 1px solid var(--border);
+        box-shadow:
+          0 0 0 1px rgba(0, 0, 0, 0.7),
+          0 18px 40px rgba(0, 0, 0, 0.8);
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 0 0 16px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .field-group {
+        margin-bottom: 10px;
+      }
+
+      label {
+        display: block;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+
+      input[type="text"] {
+        width: 100%;
+        padding: 7px 9px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: rgba(3, 4, 10, 0.9);
+        color: var(--text);
+        font-size: 12px;
+        outline: none;
+      }
+
+      input[type="text"]:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px rgba(76, 195, 255, 0.4);
+      }
+
+      .row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+      }
+
+      .row .field-group {
+        flex: 1 1 180px;
+        margin-bottom: 0;
+      }
+
+      .base-url {
+        margin-bottom: 12px;
+      }
+
+      .base-url label {
+        display: inline-block;
+      }
+
+      .base-url input {
+        margin-top: 4px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 10px;
+      }
+
+      button {
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: radial-gradient(circle at 0 0, #4cc3ff, #2672ff);
+        color: #050505;
+        padding: 7px 14px;
+        font-size: 13px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        box-shadow:
+          0 0 0 1px rgba(0, 0, 0, 0.4),
+          0 10px 24px rgba(0, 0, 0, 0.7);
+      }
+
+      button.secondary {
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.04),
+          rgba(0, 0, 0, 0.9)
+        );
+        color: var(--text);
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+        box-shadow: none;
+      }
+
+      #output {
+        margin-top: 14px;
+        font-size: 12px;
+        padding: 8px 9px;
+        border-radius: 8px;
+        background: rgba(3, 4, 10, 0.9);
+        border: 1px dashed var(--border);
+        word-break: break-all;
+        min-height: 36px;
+      }
+
+      #status {
+        margin-top: 6px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="card">
+      <h1>Portal Preview Link Builder</h1>
+      <p>
+        Enter your video URLs (e.g. SharePoint links) for front, floor and back.
+        The tool generates a viewer URL with encoded query parameters.
+      </p>
+
+      <div class="base-url">
+        <label for="baseUrl">Viewer base URL</label>
+        <input
+          id="baseUrl"
+          type="text"
+          placeholder="https://portalviewer.company.com/index.html"
+        />
+      </div>
+
+      <div class="row">
+        <div class="field-group">
+          <label for="frontUrl">Front (inside walls)</label>
+          <input
+            id="frontUrl"
+            type="text"
+            placeholder="https://.../front.mp4"
+          />
+        </div>
+
+        <div class="field-group">
+          <label for="floorUrl">Floor</label>
+          <input
+            id="floorUrl"
+            type="text"
+            placeholder="https://.../floor.mp4"
+          />
+        </div>
+
+        <div class="field-group">
+          <label for="backUrl">Back (outside walls)</label>
+          <input
+            id="backUrl"
+            type="text"
+            placeholder="https://.../back.mp4"
+          />
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="buildBtn" type="button">Generate preview link</button>
+        <button id="copyBtn" type="button" class="secondary" disabled>
+          Copy to clipboard
+        </button>
+      </div>
+
+      <div id="output"></div>
+      <div id="status"></div>
+    </div>
+
+    <script>
+      const baseUrlInput = document.getElementById("baseUrl");
+      const frontInput = document.getElementById("frontUrl");
+      const floorInput = document.getElementById("floorUrl");
+      const backInput = document.getElementById("backUrl");
+      const buildBtn = document.getElementById("buildBtn");
+      const copyBtn = document.getElementById("copyBtn");
+      const output = document.getElementById("output");
+      const statusEl = document.getElementById("status");
+
+      // Optional: Default base URL inferred from current location
+      baseUrlInput.value =
+        window.location.origin + "/index.html";
+
+      function buildLink() {
+        const base = baseUrlInput.value.trim();
+        if (!base) {
+          statusEl.textContent = "Please enter the viewer base URL.";
+          output.textContent = "";
+          copyBtn.disabled = true;
+          return;
+        }
+
+        const params = new URLSearchParams();
+
+        const front = frontInput.value.trim();
+        const floor = floorInput.value.trim();
+        const back = backInput.value.trim();
+
+        if (front) params.set("inner", front);
+        if (floor) params.set("floor", floor);
+        if (back) params.set("outer", back);
+
+        if ([front, floor, back].every((v) => !v)) {
+          statusEl.textContent =
+            "No video URLs provided yet. Add at least one to build a link.";
+          output.textContent = "";
+          copyBtn.disabled = true;
+          return;
+        }
+
+        const sep = base.includes("?") ? "&" : "?";
+        const fullUrl = base + sep + params.toString();
+
+        output.textContent = fullUrl;
+        statusEl.textContent =
+          "Link generated. You can copy it and paste into your presentation.";
+        copyBtn.disabled = false;
+      }
+
+      function copyLink() {
+        const text = output.textContent.trim();
+        if (!text) return;
+
+        navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            statusEl.textContent = "Link copied to clipboard.";
+          })
+          .catch(() => {
+            statusEl.textContent =
+              "Could not access clipboard. Please copy the link manually.";
+          });
+      }
+
+      buildBtn.addEventListener("click", buildLink);
+      copyBtn.addEventListener("click", copyLink);
+    </script>
+  </body>
+</html>

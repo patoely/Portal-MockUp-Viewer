@@ -249,7 +249,11 @@
 
       <div id="toolbar">
         <div class="group">
-          <button id="sweetspotFrontBtn" class="tool-btn primary" type="button">
+          <button
+            id="sweetspotFrontBtn"
+            class="tool-btn primary"
+            type="button"
+          >
             <span class="dot"></span>
             Sweetspot Front
           </button>
@@ -264,11 +268,7 @@
         <h2>Navigation &amp; Modes</h2>
         <ul>
           <li>Mouse: Left‑drag orbit, right‑drag pan, scroll to zoom.</li>
-          <li>
-            This preview is driven by URL parameters
-            <code>inner</code>, <code>outer</code>, <code>floor</code>
-            (SharePoint video links).
-          </li>
+          <li>Videos are controlled via URL parameters (inner, outer, floor).</li>
         </ul>
       </div>
 
@@ -333,6 +333,19 @@
       const hemiLight = new THREE.HemisphereLight(0xb0b0b0, 0x4a4a4a, 0.9);
       hemiLight.position.set(0, 1, 0);
       scene.add(hemiLight);
+
+      /*
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
+      dirLight.position.set(300, 600, 200);
+      dirLight.castShadow = true;
+      dirLight.shadow.mapSize.set(2048, 2048);
+      const d = 1200;
+      dirLight.shadow.camera.left = -d;
+      dirLight.shadow.camera.right = d;
+      dirLight.shadow.camera.top = d;
+      dirLight.shadow.camera.bottom = -d;
+      scene.add(dirLight);
+      */
 
       const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
       fillLight.position.set(-600, 400, -500);
@@ -402,112 +415,10 @@
       gltfLoader.setPath("models/");
 
       let model = null;
-
+      const originalMaps = new WeakMap();
       const innerMaterials = [];
       const outerMaterials = [];
       const floorMaterials = [];
-
-      const LUMINOSITY_DEFAULT = 0.14;
-
-      // Loader videos (local)
-      const loaderVideos = {
-        inner: { src: "models/loader_inside.mp4", video: null, texture: null },
-        outer: { src: "models/loader_outside.mp4", video: null, texture: null },
-        floor: { src: "models/loader_floor.mp4", video: null, texture: null }
-      };
-
-      // External SharePoint videos
-      const externalVideos = {
-        inner: { url: null, video: null, texture: null, ready: false },
-        outer: { url: null, video: null, texture: null, ready: false },
-        floor: { url: null, video: null, texture: null, ready: false }
-      };
-
-      let activeVideoEntries = [];
-      let syncIntervalId = null;
-      let usingExternal = false;
-
-      function createVideoAndTexture(src) {
-        const video = document.createElement("video");
-        video.src = src;
-        video.loop = true;
-        video.muted = true;
-        video.playsInline = true;
-        video.preload = "auto";
-
-        const texture = new THREE.VideoTexture(video);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        texture.minFilter = THREE.LinearFilter;
-        texture.magFilter = THREE.LinearFilter;
-        texture.generateMipmaps = false;
-        texture.flipY = false;
-
-        return { video, texture };
-      }
-
-      function assignVideoToMaterials(slotKey, materials, video, texture) {
-        const entries = [];
-        for (const mat of materials) {
-          mat.map = texture;
-          mat.emissiveMap = texture;
-          mat.emissive = new THREE.Color(0xffffff);
-          mat.emissiveIntensity = LUMINOSITY_DEFAULT;
-          mat.roughness = 0.5;
-          mat.metalness = 0.0;
-          mat.needsUpdate = true;
-
-          entries.push({ slot: slotKey, mat, video, videoTexture: texture });
-        }
-        activeVideoEntries.push(...entries);
-      }
-
-      function startVideos(entries) {
-        const uniqueVideos = Array.from(new Set(entries.map((e) => e.video)));
-        for (const v of uniqueVideos) {
-          try {
-            v.currentTime = 0;
-          } catch (e) {}
-          const p = v.play();
-          if (p && typeof p.then === "function") {
-            p.catch(() => {});
-          }
-        }
-      }
-
-      function stopSyncMonitor() {
-        if (syncIntervalId !== null) {
-          clearInterval(syncIntervalId);
-          syncIntervalId = null;
-        }
-      }
-
-      function startSyncMonitor() {
-        if (!activeVideoEntries.length) return;
-        const videos = Array.from(
-          new Set(activeVideoEntries.map((e) => e.video))
-        );
-        if (!videos.length) return;
-
-        syncIntervalId = window.setInterval(() => {
-          const ref = videos[0];
-          const refTime = ref.currentTime;
-          for (let i = 1; i < videos.length; i++) {
-            const v = videos[i];
-            if (!v) continue;
-            const delta = Math.abs(v.currentTime - refTime);
-            if (delta > 0.08) {
-              try {
-                v.currentTime = refTime;
-              } catch (e) {}
-            }
-          }
-        }, 250);
-      }
-
-      function clearActiveVideos() {
-        stopSyncMonitor();
-        activeVideoEntries = [];
-      }
 
       function setupModel(root) {
         root.traverse((child) => {
@@ -525,6 +436,7 @@
             if (!mat) continue;
             mat.side = THREE.DoubleSide;
             if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
+            originalMaps.set(mat, mat.map || null);
 
             const name = (mat.name || "").toLowerCase();
             const meshName = (child.name || "").toLowerCase();
@@ -565,71 +477,39 @@
         root.updateMatrixWorld(true);
 
         goToSweetspotFront();
-
-        // Initial: assign loader videos
-        setupLoaderVideosAndMaybeExternal();
       }
 
-      function parseUrlParams() {
-        const params = new URLSearchParams(window.location.search);
-        externalVideos.inner.url = params.get("inner");
-        externalVideos.outer.url = params.get("outer");
-        externalVideos.floor.url = params.get("floor");
+      sweetspotFrontBtn.addEventListener("click", () => {
+        goToSweetspotFront();
+      });
+
+      sweetspotBackBtn.addEventListener("click", () => {
+        goToSweetspotBack();
+      });
+
+      function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
       }
+      animate();
 
-      function setupLoaderVideosAndMaybeExternal() {
-        clearActiveVideos();
+      loadingStatus.textContent = "Loading model…";
+      gltfLoader.load(
+        "Portal_mapped.glb",
+        (gltf) => {
+          model = gltf.scene;
+          setupModel(model);
+          window.model = model;
 
-        // Create loader textures (once)
-        if (!loaderVideos.inner.video) {
-          const inner = createVideoAndTexture(loaderVideos.inner.src);
-          loaderVideos.inner.video = inner.video;
-          loaderVideos.inner.texture = inner.texture;
-
-          const outer = createVideoAndTexture(loaderVideos.outer.src);
-          loaderVideos.outer.video = outer.video;
-          loaderVideos.outer.texture = outer.texture;
-
-          const floor = createVideoAndTexture(loaderVideos.floor.src);
-          loaderVideos.floor.video = floor.video;
-          loaderVideos.floor.texture = floor.texture;
+          loadingOverlay.classList.add("hidden");
+        },
+        undefined,
+        (error) => {
+          console.error("GLB load error", error);
+          loadingStatus.textContent = "Error loading model.";
         }
-
-        // Assign loader textures to materials
-        if (innerMaterials.length) {
-          assignVideoToMaterials(
-            "inner",
-            innerMaterials,
-            loaderVideos.inner.video,
-            loaderVideos.inner.texture
-          );
-        }
-        if (outerMaterials.length) {
-          assignVideoToMaterials(
-            "outer",
-            outerMaterials,
-            loaderVideos.outer.video,
-            loaderVideos.outer.texture
-          );
-        }
-        if (floorMaterials.length) {
-          assignVideoToMaterials(
-            "floor",
-            floorMaterials,
-            loaderVideos.floor.video,
-            loaderVideos.floor.texture
-          );
-        }
-
-        startVideos(activeVideoEntries);
-        startSyncMonitor();
-
-        // Prepare external videos if URLs exist
-        parseUrlParams();
-        const hasAnyExternal =
-          externalVideos.inner.url ||
-          externalVideos.outer.url ||
-          externalVideos.floor.url;
-
-        if (hasAnyExternal) {
-          loadingStatus.textConteatus.textConte
+      );
+    </script>
+  </body>
+</html>

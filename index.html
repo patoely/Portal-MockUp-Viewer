@@ -14,7 +14,6 @@
       }
     </script>
 
-    
     <style>
       :root {
         color-scheme: dark;
@@ -143,54 +142,6 @@
         box-shadow: none;
       }
 
-      .file-slot {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 12px;
-        color: var(--muted);
-      }
-
-      .file-slot-label {
-        min-width: 40px;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        font-size: 11px;
-      }
-
-      .file-input-wrapper {
-        position: relative;
-        overflow: hidden;
-        border-radius: 999px;
-        border: 1px dashed rgba(255, 255, 255, 0.24);
-        padding: 3px 8px;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        background: rgba(0, 0, 0, 0.4);
-        cursor: pointer;
-        transition:
-          border-color 0.15s ease,
-          background 0.15s ease;
-      }
-
-      .file-input-wrapper:hover {
-        border-color: var(--accent);
-        background: rgba(0, 0, 0, 0.65);
-      }
-
-      .file-input-wrapper span {
-        font-size: 11px;
-        color: var(--muted);
-      }
-
-      .file-input-wrapper input[type="file"] {
-        position: absolute;
-        inset: 0;
-        opacity: 0;
-        cursor: pointer;
-      }
-
       #infoPanel {
         position: absolute;
         left: 16px;
@@ -298,54 +249,13 @@
 
       <div id="toolbar">
         <div class="group">
-          <button
-            id="specsPreviewBtn"
-            class="tool-btn primary"
-            type="button"
-            disabled
-          >
+          <button id="sweetspotFrontBtn" class="tool-btn primary" type="button">
             <span class="dot"></span>
-            Specs Preview
-          </button>
-
-          <button id="exampleVideoBtn" class="tool-btn" type="button">
-            Example Preview
-          </button>
-
-          <button id="sweetspotFrontBtn" class="tool-btn" type="button">
             Sweetspot Front
           </button>
 
           <button id="sweetspotBackBtn" class="tool-btn" type="button">
             Sweetspot Back
-          </button>
-
-          <div class="file-slot">
-            <span class="file-slot-label">Inner</span>
-            <label class="file-input-wrapper">
-              <span>Select video</span>
-              <input id="innerVideoInput" type="file" accept="video/*" />
-            </label>
-          </div>
-
-          <div class="file-slot">
-            <span class="file-slot-label">Outer</span>
-            <label class="file-input-wrapper">
-              <span>Select video</span>
-              <input id="outerVideoInput" type="file" accept="video/*" />
-            </label>
-          </div>
-
-          <div class="file-slot">
-            <span class="file-slot-label">Floor</span>
-            <label class="file-input-wrapper">
-              <span>Select video</span>
-              <input id="floorVideoInput" type="file" accept="video/*" />
-            </label>
-          </div>
-
-          <button id="applyPreviewBtn" class="tool-btn" type="button">
-            Apply Preview
           </button>
         </div>
       </div>
@@ -354,7 +264,11 @@
         <h2>Navigation &amp; Modes</h2>
         <ul>
           <li>Mouse: Left‑drag orbit, right‑drag pan, scroll to zoom.</li>
-          <li>Test your own videos: Load specs‑optimized videos for the corresponding screens. You do not have to fill all screens.</li>
+          <li>
+            This preview is driven by URL parameters
+            <code>inner</code>, <code>outer</code>, <code>floor</code>
+            (SharePoint video links).
+          </li>
         </ul>
       </div>
 
@@ -375,14 +289,8 @@
       const viewerContainer = document.getElementById("viewerContainer");
       const loadingOverlay = document.getElementById("loadingOverlay");
       const loadingStatus = document.getElementById("loadingStatus");
-      const specsPreviewBtn = document.getElementById("specsPreviewBtn");
-      const exampleVideoBtn = document.getElementById("exampleVideoBtn");
-      const applyPreviewBtn = document.getElementById("applyPreviewBtn");
       const sweetspotFrontBtn = document.getElementById("sweetspotFrontBtn");
       const sweetspotBackBtn = document.getElementById("sweetspotBackBtn");
-      const innerVideoInput = document.getElementById("innerVideoInput");
-      const outerVideoInput = document.getElementById("outerVideoInput");
-      const floorVideoInput = document.getElementById("floorVideoInput");
 
       const scene = new THREE.Scene();
       scene.fog = new THREE.Fog(0xb0b0b0, 2500, 6000);
@@ -426,17 +334,6 @@
       hemiLight.position.set(0, 1, 0);
       scene.add(hemiLight);
 
-      /*  const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
-      dirLight.position.set(300, 600, 200);
-      dirLight.castShadow = true;
-      dirLight.shadow.mapSize.set(2048, 2048);
-      const d = 1200;
-      dirLight.shadow.camera.left = -d;
-      dirLight.shadow.camera.right = d;
-      dirLight.shadow.camera.top = d;
-      dirLight.shadow.camera.bottom = -d;
-      scene.add(dirLight);
-      */
       const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
       fillLight.position.set(-600, 400, -500);
       scene.add(fillLight);
@@ -505,11 +402,112 @@
       gltfLoader.setPath("models/");
 
       let model = null;
-      const originalMaps = new WeakMap();
 
       const innerMaterials = [];
       const outerMaterials = [];
       const floorMaterials = [];
+
+      const LUMINOSITY_DEFAULT = 0.14;
+
+      // Loader videos (local)
+      const loaderVideos = {
+        inner: { src: "models/loader_inside.mp4", video: null, texture: null },
+        outer: { src: "models/loader_outside.mp4", video: null, texture: null },
+        floor: { src: "models/loader_floor.mp4", video: null, texture: null }
+      };
+
+      // External SharePoint videos
+      const externalVideos = {
+        inner: { url: null, video: null, texture: null, ready: false },
+        outer: { url: null, video: null, texture: null, ready: false },
+        floor: { url: null, video: null, texture: null, ready: false }
+      };
+
+      let activeVideoEntries = [];
+      let syncIntervalId = null;
+      let usingExternal = false;
+
+      function createVideoAndTexture(src) {
+        const video = document.createElement("video");
+        video.src = src;
+        video.loop = true;
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = "auto";
+
+        const texture = new THREE.VideoTexture(video);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+        texture.flipY = false;
+
+        return { video, texture };
+      }
+
+      function assignVideoToMaterials(slotKey, materials, video, texture) {
+        const entries = [];
+        for (const mat of materials) {
+          mat.map = texture;
+          mat.emissiveMap = texture;
+          mat.emissive = new THREE.Color(0xffffff);
+          mat.emissiveIntensity = LUMINOSITY_DEFAULT;
+          mat.roughness = 0.5;
+          mat.metalness = 0.0;
+          mat.needsUpdate = true;
+
+          entries.push({ slot: slotKey, mat, video, videoTexture: texture });
+        }
+        activeVideoEntries.push(...entries);
+      }
+
+      function startVideos(entries) {
+        const uniqueVideos = Array.from(new Set(entries.map((e) => e.video)));
+        for (const v of uniqueVideos) {
+          try {
+            v.currentTime = 0;
+          } catch (e) {}
+          const p = v.play();
+          if (p && typeof p.then === "function") {
+            p.catch(() => {});
+          }
+        }
+      }
+
+      function stopSyncMonitor() {
+        if (syncIntervalId !== null) {
+          clearInterval(syncIntervalId);
+          syncIntervalId = null;
+        }
+      }
+
+      function startSyncMonitor() {
+        if (!activeVideoEntries.length) return;
+        const videos = Array.from(
+          new Set(activeVideoEntries.map((e) => e.video))
+        );
+        if (!videos.length) return;
+
+        syncIntervalId = window.setInterval(() => {
+          const ref = videos[0];
+          const refTime = ref.currentTime;
+          for (let i = 1; i < videos.length; i++) {
+            const v = videos[i];
+            if (!v) continue;
+            const delta = Math.abs(v.currentTime - refTime);
+            if (delta > 0.08) {
+              try {
+                v.currentTime = refTime;
+              } catch (e) {}
+            }
+          }
+        }, 250);
+      }
+
+      function clearActiveVideos() {
+        stopSyncMonitor();
+        activeVideoEntries = [];
+      }
 
       function setupModel(root) {
         root.traverse((child) => {
@@ -527,7 +525,6 @@
             if (!mat) continue;
             mat.side = THREE.DoubleSide;
             if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
-            originalMaps.set(mat, mat.map || null);
 
             const name = (mat.name || "").toLowerCase();
             const meshName = (child.name || "").toLowerCase();
@@ -568,408 +565,71 @@
         root.updateMatrixWorld(true);
 
         goToSweetspotFront();
+
+        // Initial: assign loader videos
+        setupLoaderVideosAndMaybeExternal();
       }
 
-      const userVideos = {
-        inner: { video: null, texture: null, url: null, isUser: true },
-        outer: { video: null, texture: null, url: null, isUser: true },
-        floor: { video: null, texture: null, url: null, isUser: true }
-      };
-
-      let activeVideoEntries = [];
-      let isUsingVideos = false;
-      let syncIntervalId = null;
-
-      const LUMINOSITY_DEFAULT = 0.14;
-
-      function handleUserVideoUpload(slot, input) {
-        const file = input.files && input.files[0];
-        if (!file) return;
-
-        const current = userVideos[slot];
-        if (current && current.url) {
-          URL.revokeObjectURL(current.url);
-        }
-        if (current && current.texture) {
-          current.texture.dispose();
-        }
-
-        const url = URL.createObjectURL(file);
-        const video = document.createElement("video");
-        video.loop = true;
-        video.muted = true;
-        video.playsInline = true;
-        video.preload = "auto";
-        video.src = url;
-
-        const texture = new THREE.VideoTexture(video);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        texture.minFilter = THREE.LinearFilter;
-        texture.magFilter = THREE.LinearFilter;
-        texture.generateMipmaps = false;
-        texture.flipY = false;
-
-        userVideos[slot] = { video, texture, url, isUser: true };
-
-        input.value = "";
+      function parseUrlParams() {
+        const params = new URLSearchParams(window.location.search);
+        externalVideos.inner.url = params.get("inner");
+        externalVideos.outer.url = params.get("outer");
+        externalVideos.floor.url = params.get("floor");
       }
 
-      innerVideoInput.addEventListener("change", () =>
-        handleUserVideoUpload("inner", innerVideoInput)
-      );
-      outerVideoInput.addEventListener("change", () =>
-        handleUserVideoUpload("outer", outerVideoInput)
-      );
-      floorVideoInput.addEventListener("change", () =>
-        handleUserVideoUpload("floor", floorVideoInput)
-      );
+      function setupLoaderVideosAndMaybeExternal() {
+        clearActiveVideos();
 
-      function stopSyncMonitor() {
-        if (syncIntervalId !== null) {
-          clearInterval(syncIntervalId);
-          syncIntervalId = null;
-        }
-      }
+        // Create loader textures (once)
+        if (!loaderVideos.inner.video) {
+          const inner = createVideoAndTexture(loaderVideos.inner.src);
+          loaderVideos.inner.video = inner.video;
+          loaderVideos.inner.texture = inner.texture;
 
-      function stopAndDisposeVideos() {
-        for (const entry of activeVideoEntries) {
-          if (!entry || !entry.videoTexture) continue;
-          const video = entry.video;
-          try {
-            video.pause();
-            video.removeAttribute("src");
-            video.load();
-          } catch (e) {}
-          entry.videoTexture.dispose();
-        }
-        activeVideoEntries = [];
-        isUsingVideos = false;
-      }
+          const outer = createVideoAndTexture(loaderVideos.outer.src);
+          loaderVideos.outer.video = outer.video;
+          loaderVideos.outer.texture = outer.texture;
 
-      function startSyncMonitor() {
-        if (!activeVideoEntries.length) return;
-        const videos = Array.from(
-          new Set(activeVideoEntries.map((e) => e.video))
-        );
-        if (videos.length === 0) return;
-
-        syncIntervalId = window.setInterval(() => {
-          const ref = videos[0];
-          const refTime = ref.currentTime;
-          for (let i = 1; i < videos.length; i++) {
-            const v = videos[i];
-            if (!v) continue;
-            const delta = Math.abs(v.currentTime - refTime);
-            if (delta > 0.08) {
-              try {
-                v.currentTime = refTime;
-              } catch (e) {}
-            }
-          }
-        }, 250);
-      }
-
-      async function activateVideoEntries(pendingEntries) {
-        if (!pendingEntries.length) return;
-
-        for (const entry of pendingEntries) {
-          const video = entry.video;
-          const tex = entry.videoTexture;
-
-          try { video.currentTime = 0; } catch (e) {}
-
-          try {
-            const p = video.play();
-            if (p && typeof p.then === "function") {
-              p.catch((err) =>
-                console.warn("video play() failed", video.src, err)
-              );
-            }
-          } catch (e) {}
-
-          entry.mat.map = tex;
-          entry.mat.emissiveMap = tex;
-          entry.mat.emissive = new THREE.Color(0xffffff);
-          entry.mat.emissiveIntensity = LUMINOSITY_DEFAULT;
-          entry.mat.roughness = 0.5;
-          entry.mat.metalness = 0.0;
-          entry.mat.needsUpdate = true;
+          const floor = createVideoAndTexture(loaderVideos.floor.src);
+          loaderVideos.floor.video = floor.video;
+          loaderVideos.floor.texture = floor.texture;
         }
 
-        activeVideoEntries = pendingEntries;
-        isUsingVideos = !!activeVideoEntries.length;
-        if (isUsingVideos) startSyncMonitor();
-      }
-
-      async function switchToUserVideos() {
-        if (!model) return;
-
-        stopSyncMonitor();
-        stopAndDisposeVideos();
-
-        const hasAnyUserVideo =
-          (userVideos.inner && userVideos.inner.video) ||
-          (userVideos.outer && userVideos.outer.video) ||
-          (userVideos.floor && userVideos.floor.video);
-
-        if (!hasAnyUserVideo) {
-          updateButtonsForSpecsMode();
-          return;
+        // Assign loader textures to materials
+        if (innerMaterials.length) {
+          assignVideoToMaterials(
+            "inner",
+            innerMaterials,
+            loaderVideos.inner.video,
+            loaderVideos.inner.texture
+          );
+        }
+        if (outerMaterials.length) {
+          assignVideoToMaterials(
+            "outer",
+            outerMaterials,
+            loaderVideos.outer.video,
+            loaderVideos.outer.texture
+          );
+        }
+        if (floorMaterials.length) {
+          assignVideoToMaterials(
+            "floor",
+            floorMaterials,
+            loaderVideos.floor.video,
+            loaderVideos.floor.texture
+          );
         }
 
-        const pendingEntries = [];
+        startVideos(activeVideoEntries);
+        startSyncMonitor();
 
-        model.traverse((child) => {
-          if (!child.isMesh || !child.material) return;
-          const mats = Array.isArray(child.material)
-            ? child.material
-            : [child.material];
+        // Prepare external videos if URLs exist
+        parseUrlParams();
+        const hasAnyExternal =
+          externalVideos.inner.url ||
+          externalVideos.outer.url ||
+          externalVideos.floor.url;
 
-          for (const mat of mats) {
-            const matName = (mat.name || "").toLowerCase();
-            const meshName = (child.name || "").toLowerCase();
-
-            if (
-              userVideos.inner.video &&
-              (matName.startsWith("portal_inside_specs") ||
-                meshName.includes("portal_inside_specs"))
-            ) {
-              pendingEntries.push({
-                mat,
-                video: userVideos.inner.video,
-                videoTexture: userVideos.inner.texture,
-                isUser: true
-              });
-            } else if (
-              userVideos.outer.video &&
-              (matName.startsWith("portal_outside_specs") ||
-                meshName.includes("portal_outside_specs"))
-            ) {
-              pendingEntries.push({
-                mat,
-                video: userVideos.outer.video,
-                videoTexture: userVideos.outer.texture,
-                isUser: true
-              });
-            } else if (
-              userVideos.floor.video &&
-              (matName.startsWith("portal_floor_specs") ||
-                meshName.includes("portal_floor_specs"))
-            ) {
-              pendingEntries.push({
-                mat,
-                video: userVideos.floor.video,
-                videoTexture: userVideos.floor.texture,
-                isUser: true
-              });
-            }
-          }
-        });
-
-        if (!pendingEntries.length) {
-          updateButtonsForSpecsMode();
-          return;
-        }
-
-        await activateVideoEntries(pendingEntries);
-        updateButtonsForUserMode();
-      }
-
-      async function switchToProjectVideos() {
-        if (!model) return;
-
-        stopSyncMonitor();
-        stopAndDisposeVideos();
-
-        const pendingEntries = [];
-
-        model.traverse((child) => {
-          if (!child.isMesh || !child.material) return;
-          const mats = Array.isArray(child.material)
-            ? child.material
-            : [child.material];
-
-          for (const mat of mats) {
-            const matName = (mat.name || "").toLowerCase();
-            const meshName = (child.name || "").toLowerCase();
-            let baseName = null;
-
-            if (
-              matName.startsWith("portal_inside_specs") ||
-              meshName.includes("portal_inside_specs")
-            ) {
-              baseName = "Portal_Inside_Specs";
-            } else if (
-              matName.startsWith("portal_outside_specs") ||
-              meshName.includes("portal_outside_specs")
-            ) {
-              baseName = "Portal_Outside_Specs";
-            } else if (
-              matName.startsWith("portal_floor_specs") ||
-              meshName.includes("portal_floor_specs")
-            ) {
-              baseName = "Portal_Floor_Specs";
-            } else {
-              continue;
-            }
-
-            const videoUrl = `models/${baseName}.mp4`;
-
-            const video = document.createElement("video");
-            video.loop = true;
-            video.muted = true;
-            video.playsInline = true;
-            video.preload = "auto";
-            video.src = videoUrl;
-
-            const texture = new THREE.VideoTexture(video);
-            texture.colorSpace = THREE.SRGBColorSpace;
-            texture.minFilter = THREE.LinearFilter;
-            texture.magFilter = THREE.LinearFilter;
-            texture.generateMipmaps = false;
-            texture.flipY = false;
-
-            pendingEntries.push({
-              mat,
-              video,
-              videoTexture: texture,
-              isUser: false
-            });
-          }
-        });
-
-        if (!pendingEntries.length) {
-          updateButtonsForSpecsMode();
-          return;
-        }
-
-        await activateVideoEntries(pendingEntries);
-        updateButtonsForExampleMode();
-      }
-
-      function switchBackToSpecs() {
-        stopSyncMonitor();
-        stopAndDisposeVideos();
-
-        if (!model) {
-          updateButtonsForSpecsMode();
-          loadingOverlay.classList.add("hidden");
-          return;
-        }
-
-        const texLoader = new THREE.TextureLoader(loadingManager);
-
-        const insideSpecsTex = texLoader.load("Portal_Inside_Specs.png");
-        insideSpecsTex.colorSpace = THREE.SRGBColorSpace;
-        insideSpecsTex.flipY = false;
-
-        const outsideSpecsTex = texLoader.load("Portal_Outside_Specs.png");
-        outsideSpecsTex.colorSpace = THREE.SRGBColorSpace;
-        outsideSpecsTex.flipY = false;
-
-        const floorSpecsTex = texLoader.load("Portal_Floor_Specs.png");
-        floorSpecsTex.colorSpace = THREE.SRGBColorSpace;
-        floorSpecsTex.flipY = false;
-
-        model.traverse((child) => {
-          if (!child.isMesh || !child.material) return;
-          const mats = Array.isArray(child.material)
-            ? child.material
-            : [child.material];
-
-          for (const mat of mats) {
-            const name = (mat.name || "").toLowerCase();
-
-            if (name.startsWith("portal_inside_specs")) {
-              mat.map = insideSpecsTex;
-              mat.emissiveMap = null;
-              mat.emissive = new THREE.Color(0x000000);
-              mat.emissiveIntensity = 0.0;
-              mat.needsUpdate = true;
-              originalMaps.set(mat, insideSpecsTex);
-            } else if (name.startsWith("portal_outside_specs")) {
-              mat.map = outsideSpecsTex;
-              mat.emissiveMap = null;
-              mat.emissive = new THREE.Color(0x000000);
-              mat.emissiveIntensity = 0.0;
-              mat.needsUpdate = true;
-              originalMaps.set(mat, outsideSpecsTex);
-            } else if (name.startsWith("portal_floor_specs")) {
-              mat.map = floorSpecsTex;
-              mat.emissiveMap = null;
-              mat.emissive = new THREE.Color(0x000000);
-              mat.emissiveIntensity = 0.0;
-              mat.needsUpdate = true;
-              originalMaps.set(mat, floorSpecsTex);
-            }
-          }
-        });
-
-        loadingOverlay.classList.add("hidden");
-        updateButtonsForSpecsMode();
-      }
-
-      function updateButtonsForSpecsMode() {
-        specsPreviewBtn.disabled = true;
-        exampleVideoBtn.disabled = false;
-        applyPreviewBtn.disabled = false;
-      }
-
-      function updateButtonsForExampleMode() {
-        specsPreviewBtn.disabled = false;
-        exampleVideoBtn.disabled = true;
-        applyPreviewBtn.disabled = false;
-      }
-
-      function updateButtonsForUserMode() {
-        specsPreviewBtn.disabled = false;
-        exampleVideoBtn.disabled = false;
-        applyPreviewBtn.disabled = true;
-      }
-
-      specsPreviewBtn.addEventListener("click", () => {
-        switchBackToSpecs();
-      });
-
-      exampleVideoBtn.addEventListener("click", () => {
-        switchToProjectVideos();
-      });
-
-      applyPreviewBtn.addEventListener("click", () => {
-        switchToUserVideos();
-      });
-
-      sweetspotFrontBtn.addEventListener("click", () => {
-        goToSweetspotFront();
-      });
-
-      sweetspotBackBtn.addEventListener("click", () => {
-        goToSweetspotBack();
-      });
-
-      function animate() {
-        requestAnimationFrame(animate);
-        controls.update();
-        renderer.render(scene, camera);
-      }
-      animate();
-
-      loadingStatus.textContent = "Loading model…";
-      gltfLoader.load(
-        "Portal_mapped.glb",
-        (gltf) => {
-          model = gltf.scene;
-          setupModel(model);
-          window.model = model;
-
-          switchBackToSpecs();
-        },
-        undefined,
-        (error) => {
-          console.error("GLB load error", error);
-          loadingStatus.textContent = "Error loading model.";
-        }
-      );
-    </script>
-  </body>
-</html>
+        if (hasAnyExternal) {
+          loadingStatus.textConteatus.textConte

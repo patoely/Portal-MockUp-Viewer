@@ -272,6 +272,10 @@
             Default view uses specs textures (Portal_Inside_Specs,
             Portal_Outside_Specs, Portal_Floor_Specs).
           </li>
+          <li>
+            Optional preview videos via URL params:
+            <code>?inner=...&outer=...&floor=...</code>
+          </li>
         </ul>
       </div>
 
@@ -294,6 +298,11 @@
       const loadingStatus = document.getElementById("loadingStatus");
       const sweetspotFrontBtn = document.getElementById("sweetspotFrontBtn");
       const sweetspotBackBtn = document.getElementById("sweetspotBackBtn");
+
+      const params = new URLSearchParams(window.location.search);
+      const innerUrl = params.get("inner");
+      const outerUrl = params.get("outer");
+      const floorUrl = params.get("floor");
 
       const scene = new THREE.Scene();
       scene.fog = new THREE.Fog(0xb0b0b0, 2500, 6000);
@@ -336,19 +345,6 @@
       const hemiLight = new THREE.HemisphereLight(0xb0b0b0, 0x4a4a4a, 0.9);
       hemiLight.position.set(0, 1, 0);
       scene.add(hemiLight);
-
-      /*
-      const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
-      dirLight.position.set(300, 600, 200);
-      dirLight.castShadow = true;
-      dirLight.shadow.mapSize.set(2048, 2048);
-      const d = 1200;
-      dirLight.shadow.camera.left = -d;
-      dirLight.shadow.camera.right = d;
-      dirLight.shadow.camera.top = d;
-      dirLight.shadow.camera.bottom = -d;
-      scene.add(dirLight);
-      */
 
       const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
       fillLight.position.set(-600, 400, -500);
@@ -422,6 +418,11 @@
       const innerMaterials = [];
       const outerMaterials = [];
       const floorMaterials = [];
+
+      const LUMINOSITY_DEFAULT = 0.14;
+
+      const activeVideoEntries = [];
+      let syncIntervalId = null;
 
       function setupModel(root) {
         root.traverse((child) => {
@@ -534,6 +535,104 @@
         });
       }
 
+      function startSyncMonitor(videos) {
+        if (!videos.length) return;
+        if (syncIntervalId) {
+          clearInterval(syncIntervalId);
+          syncIntervalId = null;
+        }
+        syncIntervalId = window.setInterval(() => {
+          const ref = videos[0];
+          const refTime = ref.currentTime || 0;
+          for (let i = 1; i < videos.length; i++) {
+            const v = videos[i];
+            if (!v) continue;
+            const delta = Math.abs(v.currentTime - refTime);
+            if (delta > 0.08) {
+              try {
+                v.currentTime = refTime;
+              } catch (e) {}
+            }
+          }
+        }, 250);
+      }
+
+      function setupPreviewVideos() {
+        if (!model) return;
+
+        const sources = {
+          inner: innerUrl,
+          outer: outerUrl,
+          floor: floorUrl
+        };
+
+        const entries = [];
+
+        function createEntry(url, targetMats) {
+          if (!url || !targetMats.length) return;
+          const video = document.createElement("video");
+          video.src = url;
+          video.loop = true;
+          video.muted = true;
+          video.playsInline = true;
+          video.preload = "auto";
+
+          const texture = new THREE.VideoTexture(video);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+          texture.generateMipmaps = false;
+          texture.flipY = false;
+
+          entries.push({ video, texture, targetMats });
+        }
+
+        createEntry(sources.inner, innerMaterials);
+        createEntry(sources.outer, outerMaterials);
+        createEntry(sources.floor, floorMaterials);
+
+        if (!entries.length) return;
+
+        let readyCount = 0;
+        const videos = entries.map((e) => e.video);
+
+        const onReady = () => {
+          readyCount += 1;
+          if (readyCount < entries.length) return;
+
+          for (const entry of entries) {
+            const { video, texture, targetMats } = entry;
+            try {
+              video.currentTime = 0;
+            } catch (e) {}
+            try {
+              const p = video.play();
+              if (p && typeof p.then === "function") {
+                p.catch(() => {});
+              }
+            } catch (e) {}
+
+            for (const mat of targetMats) {
+              mat.map = texture;
+              mat.emissiveMap = texture;
+              mat.emissive = new THREE.Color(0xffffff);
+              mat.emissiveIntensity = LUMINOSITY_DEFAULT;
+              mat.roughness = 0.5;
+              mat.metalness = 0.0;
+              mat.needsUpdate = true;
+            }
+          }
+
+          startSyncMonitor(videos);
+        };
+
+        for (const entry of entries) {
+          const v = entry.video;
+          v.addEventListener("canplaythrough", onReady, { once: true });
+          v.addEventListener("loadeddata", onReady, { once: true });
+        }
+      }
+
       sweetspotFrontBtn.addEventListener("click", () => {
         goToSweetspotFront();
       });
@@ -558,6 +657,7 @@
           window.model = model;
 
           applySpecsTextures();
+          setupPreviewVideos();
           loadingOverlay.classList.add("hidden");
         },
         undefined,
